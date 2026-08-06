@@ -43,6 +43,16 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
+
+echo "A criar remote-host.conf..."
+
+PUBLIC_IP=$(curl -4 -s ifconfig.me)
+
+if [ -n "$PUBLIC_IP" ]; then
+    echo "$PUBLIC_IP" | sudo tee /etc/openvpn/remote-host.conf >/dev/null
+    sudo chmod 644 /etc/openvpn/remote-host.conf
+fi
+
 systemctl daemon-reload
 systemctl enable openvpn-manager
 systemctl restart openvpn-manager
