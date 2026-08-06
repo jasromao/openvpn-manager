@@ -19,6 +19,14 @@ git clone https://github.com/Jasromao/openvpn-manager.git /opt/openvpn-manager
 
 cd /opt/openvpn-manager
 
+echo "A descarregar backup..."
+
+wget -O /tmp/openvpn-manager.tar.gz \
+https://github.com/jasromao/openvpn-manager/releases/download/v1.0/openvpn-manager-2026-08-06_08-27-50.tar.gz
+
+cd /opt
+tar -xzf /tmp/openvpn-manager.tar.gz
+
 cat >/etc/systemd/system/openvpn-manager.service <<EOF
 [Unit]
 Description=OpenVPN Manager
