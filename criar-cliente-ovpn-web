@@ -1,0 +1,445 @@
+#!/bin/bash
+#
+# criar-cliente-ovpn-web
+# Versão Web para o painel OpenVPN
+#
+
+set -e
+
+
+
+##############################################
+# CONFIGURAÇÃO
+##############################################
+
+EASYRSA_DIR="/etc/openvpn/manual-easy-rsa"
+
+SERVER_CONF="/etc/openvpn/server/manual.conf"
+
+CCD_DIR="/etc/openvpn/ccd"
+
+CLIENT_DIR="/home/ubuntu"
+
+REMOTE_CONFIG="/etc/openvpn/remote-host.conf"
+
+SERVICE="openvpn-server@manual"
+
+REMOTE_HOST=""
+REMOTE_PORT="1195"
+
+##############################################
+# FUNÇÕES
+##############################################
+
+erro() {
+    echo "ERRO: $1"
+    exit 1
+}
+
+ok() {
+    echo "OK: $1"
+}
+
+##############################################
+# Obtém todas as redes GL.iNet existentes
+##############################################
+
+obter_redes_glinet() {
+
+    find "$CCD_DIR" \
+        -maxdepth 1 \
+        -type f \
+        -print0 2>/dev/null |
+
+    xargs -0 -r awk '
+
+        $1=="iroute"{
+            print $2,$3
+        }
+
+    ' |
+
+    sort -u
+
+}
+
+##############################################
+# Atualiza automaticamente os clientes
+# do tipo Casa/Fora
+##############################################
+
+atualizar_push_clientes() {
+
+    local FICHEIRO
+    local TIPO
+    local REDE_LOCAL
+    local TEMP
+
+    mkdir -p "$CCD_DIR"
+
+    for FICHEIRO in "$CCD_DIR"/*; do
+
+        [ -f "$FICHEIRO" ] || continue
+
+        TIPO=$(awk -F= '/^# tipo=/{print $2;exit}' "$FICHEIRO")
+
+        [ "$TIPO" = "pc_casa" ] || \
+        [ "$TIPO" = "pc_fora" ] || continue
+
+        REDE_LOCAL=$(awk -F= '/^# rede_local=/{print $2;exit}' "$FICHEIRO")
+
+        TEMP=$(mktemp)
+
+        echo "# tipo=$TIPO" > "$TEMP"
+
+        [ -n "$REDE_LOCAL" ] && \
+        echo "# rede_local=$REDE_LOCAL" >> "$TEMP"
+
+        while read -r REDE MASCARA
+        do
+
+            [ -n "$REDE" ] || continue
+
+            if [ "$TIPO" = "pc_casa" ] &&
+               [ "$REDE" = "$REDE_LOCAL" ]
+            then
+                continue
+            fi
+
+            echo "push \"route $REDE $MASCARA\"" >> "$TEMP"
+
+        done < <(obter_redes_glinet)
+
+        mv "$TEMP" "$FICHEIRO"
+
+        chmod 644 "$FICHEIRO"
+
+    done
+
+}
+
+##############################################
+# Criar Cliente
+##############################################
+
+criar_cliente() {
+
+    CLIENTE="$1"
+    TIPO="$2"
+    REDES_STRING="$3"
+
+    [ -n "$CLIENTE" ] || erro "Nome do cliente em falta."
+    [ -n "$TIPO" ] || erro "Tipo do cliente em falta."
+
+    if [ "$TIPO" != "fora" ]; then
+        [ -n "$REDES_STRING" ] || erro "Rede(s) em falta."
+    fi
+
+    case "$TIPO" in
+        glinet)
+            TIPO_ID=3
+            ;;
+        casa)
+            TIPO_ID=1
+            ;;
+        fora)
+            TIPO_ID=2
+            ;;
+        *)
+            erro "Tipo inválido."
+            ;;
+    esac
+
+    if [[ ! "$CLIENTE" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        erro "Nome do cliente inválido."
+    fi
+
+    if [ -f "$EASYRSA_DIR/pki/issued/$CLIENTE.crt" ]; then
+        erro "Já existe um cliente com esse nome."
+    fi
+
+    REDES=()
+    MASCARAS=()
+
+    if [ "$TIPO_ID" -eq 3 ]; then
+
+        IFS=',' read -ra LISTA <<< "$REDES_STRING"
+
+        for REDE in "${LISTA[@]}"
+        do
+
+            REDE=$(echo "$REDE" | xargs)
+
+            [[ "$REDE" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+                || erro "Rede inválida: $REDE"
+
+            REDES+=("$REDE")
+            MASCARAS+=("255.255.255.0")
+
+        done
+
+    else
+
+        REDE_LOCAL=$(echo "$REDES_STRING" | xargs)
+
+    fi
+
+    cd "$EASYRSA_DIR"
+
+##############################################
+# Ler configuração remota
+##############################################
+
+if [ -z "$REMOTE_HOST" ]; then
+
+    if [ ! -f "$REMOTE_CONFIG" ]; then
+        erro "Não existe $REMOTE_CONFIG"
+    fi
+
+    REMOTE_HOST=$(head -n1 "$REMOTE_CONFIG" | tr -d '\r\n')
+
+fi
+
+    ./easyrsa --batch gen-req "$CLIENTE" nopass
+
+    ./easyrsa --batch sign-req client "$CLIENTE"
+
+    CERT="$EASYRSA_DIR/pki/issued/$CLIENTE.crt"
+    KEY="$EASYRSA_DIR/pki/private/$CLIENTE.key"
+
+    [ -f "$CERT" ] || erro "Certificado não criado."
+
+    [ -f "$KEY" ] || erro "Chave privada não criada."
+
+##############################################
+# Gerar ficheiros .ovpn
+##############################################
+
+    OVPN="$CLIENT_DIR/$CLIENTE.ovpn"
+
+    cat > "$OVPN" <<EOF
+client
+dev tun
+proto udp
+remote $REMOTE_HOST $REMOTE_PORT
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+verify-x509-name server name
+tls-version-min 1.2
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+auth SHA256
+verb 3
+EOF
+
+    # As rotas das redes remotas são enviadas dinamicamente
+    # pelo servidor através do ficheiro CCD.
+
+    cat >> "$OVPN" <<EOF
+<ca>
+EOF
+
+    cat "$EASYRSA_DIR/pki/ca.crt" >> "$OVPN"
+
+    cat >> "$OVPN" <<EOF
+</ca>
+<cert>
+EOF
+
+    sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' \
+        "$EASYRSA_DIR/pki/issued/$CLIENTE.crt" >> "$OVPN"
+
+    cat >> "$OVPN" <<EOF
+</cert>
+<key>
+EOF
+
+    cat "$EASYRSA_DIR/pki/private/$CLIENTE.key" >> "$OVPN"
+
+    cat >> "$OVPN" <<EOF
+</key>
+<tls-crypt>
+EOF
+
+    cat "$EASYRSA_DIR/pki/ta.key" >> "$OVPN"
+
+    cat >> "$OVPN" <<EOF
+</tls-crypt>
+EOF
+
+    chmod 600 "$OVPN"
+
+    if id ubuntu >/dev/null 2>&1; then
+        chown ubuntu:"$(id -gn ubuntu)" "$OVPN"
+    fi
+
+##############################################
+# Criar versão VPS
+##############################################
+
+    OVPN_VPS="${OVPN%.ovpn}-vps.ovpn"
+
+    cp "$OVPN" "$OVPN_VPS"
+
+    cat >> "$OVPN_VPS" <<EOF
+
+redirect-gateway def1 bypass-dhcp
+dhcp-option DNS 1.1.1.1
+dhcp-option DNS 8.8.8.8
+EOF
+
+    chmod 600 "$OVPN_VPS"
+
+    if id ubuntu >/dev/null 2>&1; then
+        chown ubuntu:"$(id -gn ubuntu)" "$OVPN_VPS"
+    fi
+
+##############################################
+# CCD e Rotas
+##############################################
+
+    mkdir -p "$CCD_DIR"
+
+    if [ "$TIPO_ID" -eq 1 ]; then
+
+        {
+            echo "# tipo=pc_casa"
+            echo "# rede_local=$REDE_LOCAL"
+        } > "$CCD_DIR/$CLIENTE"
+
+        chmod 644 "$CCD_DIR/$CLIENTE"
+
+        atualizar_push_clientes
+
+    elif [ "$TIPO_ID" -eq 2 ]; then
+
+        {
+            echo "# tipo=pc_fora"
+            echo "# rede_local="
+        } > "$CCD_DIR/$CLIENTE"
+
+        chmod 644 "$CCD_DIR/$CLIENTE"
+
+        atualizar_push_clientes
+
+    elif [ "$TIPO_ID" -eq 3 ]; then
+
+        echo "# tipo=glinet" > "$CCD_DIR/$CLIENTE"
+
+        for ((i=0; i<${#REDES[@]}; i++))
+        do
+
+            REDE="${REDES[$i]}"
+            MASCARA="${MASCARAS[$i]}"
+
+            echo "iroute $REDE $MASCARA" >> "$CCD_DIR/$CLIENTE"
+
+            if ! grep -q "^route $REDE $MASCARA" "$SERVER_CONF"; then
+                echo "route $REDE $MASCARA" >> "$SERVER_CONF"
+            fi
+
+        done
+
+        chmod 644 "$CCD_DIR/$CLIENTE"
+
+        atualizar_push_clientes
+
+    fi
+
+##############################################
+# Ativar CCD no servidor
+##############################################
+
+    if ! grep -qF "client-config-dir $CCD_DIR" "$SERVER_CONF"
+    then
+        echo "client-config-dir $CCD_DIR" >> "$SERVER_CONF"
+    fi
+
+##############################################
+# Reiniciar OpenVPN
+##############################################
+
+    systemctl restart "$SERVICE"
+
+    ok "Cliente criado."
+
+}
+
+remover_cliente() {
+
+    CLIENTE="$1"
+
+    CERT="$EASYRSA_DIR/pki/issued/$CLIENTE.crt"
+
+    if [ ! -f "$CERT" ]; then
+        echo "Esse cliente não existe."
+        exit 1
+    fi
+
+    if [ "$CLIENTE" = "server" ]; then
+        echo "O certificado do servidor não pode ser removido."
+        exit 1
+    fi
+
+    ROTAS_CLIENTE=()
+
+    if [ -f "$CCD_DIR/$CLIENTE" ]; then
+        while read -r TIPO_ROTA REDE MASCARA; do
+            if [ "$TIPO_ROTA" = "iroute" ]; then
+                ROTAS_CLIENTE+=("$REDE $MASCARA")
+            fi
+        done < "$CCD_DIR/$CLIENTE"
+    fi
+
+    cd "$EASYRSA_DIR"
+    ./easyrsa --batch revoke "$CLIENTE"
+    ./easyrsa gen-crl
+
+    rm -f "$EASYRSA_DIR/pki/issued/$CLIENTE.crt"
+    rm -f "$EASYRSA_DIR/pki/private/$CLIENTE.key"
+    rm -f "$EASYRSA_DIR/pki/reqs/$CLIENTE.req"
+    rm -f "$CLIENT_DIR/$CLIENTE.ovpn"
+    rm -f "$CLIENT_DIR/${CLIENTE}-vps.ovpn"
+    rm -f "$CCD_DIR/$CLIENTE"
+
+    for ROTA in "${ROTAS_CLIENTE[@]}"; do
+        REDE="${ROTA%% *}"
+        MASCARA="${ROTA#* }"
+        sed -i "\|^route $REDE $MASCARA$|d" "$SERVER_CONF"
+    done
+
+    atualizar_push_clientes
+
+    systemctl restart "$SERVICE"
+
+    echo "Cliente $CLIENTE removido."
+}
+
+##############################################
+# EXECUÇÃO
+##############################################
+
+CLIENTE="${1:-}"
+TIPO="${2:-}"
+REDES="${3:-}"
+
+REMOTE_HOST="${4:-}"
+REMOTE_PORT="${5:-1195}"
+
+[ -n "$CLIENTE" ] || erro "Nome do cliente em falta."
+[ -n "$TIPO" ] || erro "Tipo do cliente em falta."
+
+if [ "$CLIENTE" = "remover" ]; then
+    remover_cliente "$TIPO"
+else
+    if [ "$TIPO" != "fora" ]; then
+        [ -n "$REDES" ] || erro "Redes em falta."
+    fi
+
+    criar_cliente \
+        "$CLIENTE" \
+        "$TIPO" \
+        "$REDES"
+fi
+
