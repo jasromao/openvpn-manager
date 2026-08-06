@@ -53,6 +53,9 @@ if [ -n "$PUBLIC_IP" ]; then
     sudo chmod 644 /etc/openvpn/remote-host.conf
 fi
 
+cp /opt/openvpn-manager/criar-cliente-ovpn-web /usr/local/bin/
+chmod +x /usr/local/bin/criar-cliente-ovpn-web
+
 systemctl daemon-reload
 systemctl enable openvpn-manager
 systemctl restart openvpn-manager
