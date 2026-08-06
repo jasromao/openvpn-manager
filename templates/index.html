@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<title>OpenVPN Manager</title>
+
+<style>
+
+body{
+    margin:0;
+    font-family:Arial,Helvetica,sans-serif;
+    background:#f4f6f9;
+}
+
+.sidebar{
+    position:fixed;
+    left:0;
+    top:0;
+    width:220px;
+    height:100%;
+    background:#1f2937;
+    color:white;
+}
+
+.sidebar h2{
+    text-align:center;
+    padding:20px;
+    border-bottom:1px solid #374151;
+}
+
+.sidebar a{
+    display:block;
+    color:white;
+    text-decoration:none;
+    padding:15px 20px;
+}
+
+.sidebar a:hover{
+    background:#374151;
+}
+
+.main{
+    margin-left:220px;
+    padding:30px;
+}
+
+.card{
+    background:white;
+    border-radius:10px;
+    padding:20px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15);
+    margin-bottom:20px;
+}
+
+.online{
+    color:green;
+    font-size:22px;
+    font-weight:bold;
+}
+
+button{
+    background:#2563eb;
+    color:white;
+    border:none;
+    padding:12px 18px;
+    border-radius:6px;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#1d4ed8;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="sidebar">
+
+<h2>OpenVPN</h2>
+
+<a href="/">🏠 Dashboard</a>
+<a href="/clientes">👥 Clientes</a>
+
+
+</div>
+
+<div class="main">
+
+<div class="card">
+
+<h1>Dashboard</h1>
+
+<p class="online">
+{{ status }}
+</p>
+
+</div>
+
+<div class="card">
+
+<h2>Servidor OpenVPN</h2>
+
+<a href="/criar"><button>Criar Cliente</button></a>
+
+
+<a href="/clientes"><button>Apagar Cliente</button></a>
+
+</div>
+
+</div>
+
+</body>
+</html>

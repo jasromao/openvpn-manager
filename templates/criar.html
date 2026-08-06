@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<title>Criar Cliente</title>
+</head>
+<body>
+
+<h2>Criar Cliente OpenVPN</h2>
+
+<form method="POST">
+
+Nome do Cliente:<br>
+<input type="text" name="nome" required><br><br>
+<div id="pc_casa">
+<label>IP/Rede Local da Casa:</label><br>
+<input type="text" name="rede_casa" placeholder="192.168.1.0"><br><br>
+</div>
+
+<div id="glinet">
+<label>Redes Locais:</label><br>
+<textarea name="redes" rows="5" cols="40" placeholder="Uma rede por linha&#10;192.168.8.0&#10;192.168.9.0"></textarea><br><br>
+</div>
+
+
+<select name="tipo" id="tipo" onchange="mostrarCampos()">
+    <option value="casa">PC Casa</option>
+    <option value="fora">PC Fora</option>
+    <option value="glinet">GL.iNet</option>
+</select><br><br>
+
+
+<input type="submit" value="Criar Cliente">
+
+</form>
+
+<br>
+<a href="/">Voltar</a>
+
+<script>
+function mostrarCampos() {
+    let tipo = document.getElementById("tipo").value;
+
+    document.getElementById("pc_casa").style.display =
+        (tipo == "casa") ? "block" : "none";
+
+    document.getElementById("glinet").style.display =
+        (tipo == "glinet") ? "block" : "none";
+}
+
+window.onload = mostrarCampos;
+</script>
+
+</body>
+</html>

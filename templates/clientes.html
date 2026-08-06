@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Clientes</title>
+</head>
+
+<body>
+
+<h2>Clientes OpenVPN</h2>
+
+<table border="1" cellpadding="8">
+
+<tr>
+<th>Cliente</th>
+<th>Estado</th>
+<th>IP VPN</th>
+<th>Ações</th>
+<th>Rede Local</th>
+</tr>
+
+{% for cliente in clientes %}
+
+<tr>
+
+<td>{{ cliente.nome }}</td>
+
+<td>
+{% if cliente.estado == "ONLINE" %}
+<span style="color:green;font-weight:bold;">&#9679;</span> Online
+{% else %}
+<span style="color:red;font-weight:bold;">&#9679;</span> Offline
+{% endif %}
+</td>
+
+<td>{{ cliente.ipvpn }}</td>
+<td>{{ cliente.rede }}</td>
+
+
+<td>
+
+<a href="/download/{{ cliente.nome }}/vpn">VPN</a>
+|
+<a href="/download/{{ cliente.nome }}/vps">VPN VPS</a>
+|
+<form action="/apagar/{{ cliente.nome }}" method="post" style="display:inline;">
+    <button type="submit" onclick="return confirm('Apagar {{ cliente.nome }}?')">
+        Apagar
+    </button>
+</form>
+
+</td>
+
+</tr>
+
+{% endfor %}
+
+</table>
+
+<br>
+
+<a href="/">Voltar</a>
+
+</body>
+</html>
