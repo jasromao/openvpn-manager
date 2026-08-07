@@ -9,23 +9,17 @@ echo "======================================="
 apt update
 apt install -y python3 python3-pip python3-flask python3-flask-httpauth python3-venv git
 
-mkdir -p /opt
+mkdir -p /home/ubuntu
 
-if [ -d /opt/openvpn-manager ]; then
-    rm -rf /opt/openvpn-manager
+if [ -d /home/ubuntu/openvpn-manager ]; then
+    rm -rf /home/ubuntu/openvpn-manager
 fi
 
-git clone https://github.com/Jasromao/openvpn-manager.git /opt/openvpn-manager
+git clone https://github.com/Jasromao/openvpn-manager.git /home/ubuntu/openvpn-manager
 
-cd /opt/openvpn-manager
+cd /home/ubuntu/openvpn-manager
 
-echo "A descarregar backup..."
 
-wget -O /tmp/openvpn-manager.tar.gz \
-https://github.com/jasromao/openvpn-manager/releases/download/v1.0/openvpn-manager-2026-08-06_08-27-50.tar.gz
-
-cd /opt
-tar -xzf /tmp/openvpn-manager.tar.gz
 
 cat >/etc/systemd/system/openvpn-manager.service <<EOF
 [Unit]
@@ -35,7 +29,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/openvpn-manager
+WorkingDirectory=/home/ubuntu/openvpn-manager
 ExecStart=/usr/bin/python3 app.py
 Restart=always
 
@@ -53,7 +47,7 @@ if [ -n "$PUBLIC_IP" ]; then
     sudo chmod 644 /etc/openvpn/remote-host.conf
 fi
 
-cp /opt/openvpn-manager/criar-cliente-ovpn-web /usr/local/bin/
+cp /home/ubuntu/openvpn-manager/criar-cliente-ovpn-web /usr/local/bin/
 chmod +x /usr/local/bin/criar-cliente-ovpn-web
 
 systemctl daemon-reload
