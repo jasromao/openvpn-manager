@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # criar-cliente-ovpn-web
-# Versão Web para o painel OpenVPN
+# VersÃ£o Web para o painel OpenVPN
 #
 
 set -e
@@ -9,7 +9,7 @@ set -e
 
 
 ##############################################
-# CONFIGURAÇÃO
+# CONFIGURAÃ‡ÃƒO
 ##############################################
 
 EASYRSA_DIR="/etc/openvpn/manual-easy-rsa"
@@ -24,11 +24,17 @@ REMOTE_CONFIG="/etc/openvpn/remote-host.conf"
 
 SERVICE="openvpn-server@manual"
 
+# Rede virtual OpenVPN usada para atribuir IP fixo aos novos clientes
+VPN_PREFIX="10.9.0"
+VPN_NETMASK="255.255.255.0"
+VPN_IP_INICIO=10
+VPN_IP_FIM=250
+
 REMOTE_HOST=""
 REMOTE_PORT="1195"
 
 ##############################################
-# FUNÇÕES
+# FUNÃ‡Ã•ES
 ##############################################
 
 erro() {
@@ -41,7 +47,7 @@ ok() {
 }
 
 ##############################################
-# Obtém todas as redes GL.iNet existentes
+# ObtÃ©m todas as redes GL.iNet existentes
 ##############################################
 
 obter_redes_glinet() {
@@ -64,6 +70,32 @@ obter_redes_glinet() {
 }
 
 ##############################################
+# ObtÃ©m o primeiro IP virtual livre
+# e garante que nÃ£o estÃ¡ jÃ¡ fixado noutro CCD
+##############################################
+
+obter_ip_virtual_livre() {
+
+    local N
+    local IP
+
+    mkdir -p "$CCD_DIR"
+
+    for ((N=VPN_IP_INICIO; N<=VPN_IP_FIM; N++)); do
+
+        IP="$VPN_PREFIX.$N"
+
+        if ! grep -RqsE "^[[:space:]]*ifconfig-push[[:space:]]+$IP([[:space:]]|$)" "$CCD_DIR" 2>/dev/null; then
+            echo "$IP"
+            return 0
+        fi
+
+    done
+
+    erro "NÃ£o existem IPs virtuais livres entre $VPN_PREFIX.$VPN_IP_INICIO e $VPN_PREFIX.$VPN_IP_FIM."
+}
+
+##############################################
 # Atualiza automaticamente os clientes
 # do tipo Casa/Fora
 ##############################################
@@ -73,6 +105,7 @@ atualizar_push_clientes() {
     local FICHEIRO
     local TIPO
     local REDE_LOCAL
+    local IP_VIRTUAL_FIXO
     local TEMP
 
     mkdir -p "$CCD_DIR"
@@ -88,12 +121,17 @@ atualizar_push_clientes() {
 
         REDE_LOCAL=$(awk -F= '/^# rede_local=/{print $2;exit}' "$FICHEIRO")
 
+        IP_VIRTUAL_FIXO=$(awk '$1=="ifconfig-push"{print $2" "$3;exit}' "$FICHEIRO")
+
         TEMP=$(mktemp)
 
         echo "# tipo=$TIPO" > "$TEMP"
 
         [ -n "$REDE_LOCAL" ] && \
         echo "# rede_local=$REDE_LOCAL" >> "$TEMP"
+
+        [ -n "$IP_VIRTUAL_FIXO" ] && \
+        echo "ifconfig-push $IP_VIRTUAL_FIXO" >> "$TEMP"
 
         while read -r REDE MASCARA
         do
@@ -146,16 +184,16 @@ criar_cliente() {
             TIPO_ID=2
             ;;
         *)
-            erro "Tipo inválido."
+            erro "Tipo invÃ¡lido."
             ;;
     esac
 
     if [[ ! "$CLIENTE" =~ ^[A-Za-z0-9_-]+$ ]]; then
-        erro "Nome do cliente inválido."
+        erro "Nome do cliente invÃ¡lido."
     fi
 
     if [ -f "$EASYRSA_DIR/pki/issued/$CLIENTE.crt" ]; then
-        erro "Já existe um cliente com esse nome."
+        erro "JÃ¡ existe um cliente com esse nome."
     fi
 
     REDES=()
@@ -171,7 +209,7 @@ criar_cliente() {
             REDE=$(echo "$REDE" | xargs)
 
             [[ "$REDE" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-                || erro "Rede inválida: $REDE"
+                || erro "Rede invÃ¡lida: $REDE"
 
             REDES+=("$REDE")
             MASCARAS+=("255.255.255.0")
@@ -187,13 +225,13 @@ criar_cliente() {
     cd "$EASYRSA_DIR"
 
 ##############################################
-# Ler configuração remota
+# Ler configuraÃ§Ã£o remota
 ##############################################
 
 if [ -z "$REMOTE_HOST" ]; then
 
     if [ ! -f "$REMOTE_CONFIG" ]; then
-        erro "Não existe $REMOTE_CONFIG"
+        erro "NÃ£o existe $REMOTE_CONFIG"
     fi
 
     REMOTE_HOST=$(head -n1 "$REMOTE_CONFIG" | tr -d '\r\n')
@@ -207,9 +245,9 @@ fi
     CERT="$EASYRSA_DIR/pki/issued/$CLIENTE.crt"
     KEY="$EASYRSA_DIR/pki/private/$CLIENTE.key"
 
-    [ -f "$CERT" ] || erro "Certificado não criado."
+    [ -f "$CERT" ] || erro "Certificado nÃ£o criado."
 
-    [ -f "$KEY" ] || erro "Chave privada não criada."
+    [ -f "$KEY" ] || erro "Chave privada nÃ£o criada."
 
 ##############################################
 # Gerar ficheiros .ovpn
@@ -233,8 +271,8 @@ auth SHA256
 verb 3
 EOF
 
-    # As rotas das redes remotas são enviadas dinamicamente
-    # pelo servidor através do ficheiro CCD.
+    # As rotas das redes remotas sÃ£o enviadas dinamicamente
+    # pelo servidor atravÃ©s do ficheiro CCD.
 
     cat >> "$OVPN" <<EOF
 <ca>
@@ -275,7 +313,7 @@ EOF
     fi
 
 ##############################################
-# Criar versão VPS
+# Criar versÃ£o VPS
 ##############################################
 
     OVPN_VPS="${OVPN%.ovpn}-vps.ovpn"
@@ -301,11 +339,16 @@ EOF
 
     mkdir -p "$CCD_DIR"
 
+    # Atribui logo um IP virtual fixo ao novo cliente.
+    # O ifconfig-push no CCD tem prioridade sobre o pool dinÃ¢mico.
+    IP_VIRTUAL=$(obter_ip_virtual_livre)
+
     if [ "$TIPO_ID" -eq 1 ]; then
 
         {
             echo "# tipo=pc_casa"
             echo "# rede_local=$REDE_LOCAL"
+            echo "ifconfig-push $IP_VIRTUAL $VPN_NETMASK"
         } > "$CCD_DIR/$CLIENTE"
 
         chmod 644 "$CCD_DIR/$CLIENTE"
@@ -317,6 +360,7 @@ EOF
         {
             echo "# tipo=pc_fora"
             echo "# rede_local="
+            echo "ifconfig-push $IP_VIRTUAL $VPN_NETMASK"
         } > "$CCD_DIR/$CLIENTE"
 
         chmod 644 "$CCD_DIR/$CLIENTE"
@@ -325,7 +369,10 @@ EOF
 
     elif [ "$TIPO_ID" -eq 3 ]; then
 
-        echo "# tipo=glinet" > "$CCD_DIR/$CLIENTE"
+        {
+            echo "# tipo=glinet"
+            echo "ifconfig-push $IP_VIRTUAL $VPN_NETMASK"
+        } > "$CCD_DIR/$CLIENTE"
 
         for ((i=0; i<${#REDES[@]}; i++))
         do
@@ -362,7 +409,7 @@ EOF
 
     systemctl restart "$SERVICE"
 
-    ok "Cliente criado."
+    ok "Cliente criado. IP virtual fixo: $IP_VIRTUAL"
 
 }
 
@@ -373,12 +420,12 @@ remover_cliente() {
     CERT="$EASYRSA_DIR/pki/issued/$CLIENTE.crt"
 
     if [ ! -f "$CERT" ]; then
-        echo "Esse cliente não existe."
+        echo "Esse cliente nÃ£o existe."
         exit 1
     fi
 
     if [ "$CLIENTE" = "server" ]; then
-        echo "O certificado do servidor não pode ser removido."
+        echo "O certificado do servidor nÃ£o pode ser removido."
         exit 1
     fi
 
@@ -417,7 +464,7 @@ remover_cliente() {
 }
 
 ##############################################
-# EXECUÇÃO
+# EXECUÃ‡ÃƒO
 ##############################################
 
 CLIENTE="${1:-}"
