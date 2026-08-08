@@ -70,6 +70,11 @@ def clientes():
                 for linha in ficheiro:
                     linha = linha.strip()
 
+                    if linha.startswith("ifconfig-push "):
+                       partes = linha.split()
+                       if len(partes) >= 2:
+                           ipvpn = partes[1]
+
                     if linha.startswith("# rede_local="):
                         redes.append(linha.split("=",1)[1].strip())
 
